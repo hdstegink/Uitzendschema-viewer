@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Uitzendschema Viewer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">◉</span>
+    <h1>Uitzendschema<span class="brand-accent">Viewer</span></h1>
+  </div>
+  <div class="week-nav">
+    <div class="nav-group">
+      <button id="prevWeek" title="Vorige week" aria-label="Vorige week">‹</button>
+      <button id="todayBtn">Vandaag</button>
+      <button id="nextWeek" title="Volgende week" aria-label="Volgende week">›</button>
+    </div>
+    <select id="weekSelect" title="Spring naar week met uitzendingen"></select>
+    <span id="weekLabel" class="week-label"></span>
+  </div>
+  <div class="view-switch" id="viewSwitch">
+    <button data-view="day" title="Dagweergave (sneltoets 1)">Dag</button>
+    <button data-view="week" title="Weekweergave (sneltoets 2)">Week</button>
+    <button data-view="month" title="Maandweergave (sneltoets 3)">Maand</button>
+    <button data-view="list" title="Lijstweergave (sneltoets 4)">Lijst</button>
+    <button data-view="dashboard" title="Dashboard (sneltoets 5)">Dashboard</button>
+  </div>
+  <div class="search-box">
+    <span class="search-ico">🔍</span>
+    <input type="search" id="searchInput" placeholder="Zoek spot of nummer…">
+  </div>
+  <button id="printBtn" class="ghost print-btn" title="Weekoverzichten printen of als PDF opslaan">⎙ Print</button>
+  <div class="upload-zone" id="uploadZone">
+    <input type="file" id="fileInput" accept=".xls,.xlsx" multiple hidden>
+    <button id="uploadBtn" class="primary"><span class="btn-ico">＋</span> Schema laden</button>
+    <span class="hint">of sleep bestanden hierheen</span>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <section>
+      <h2>Schema's</h2>
+      <ul id="scheduleList" class="schedule-list"></ul>
+      <p id="emptyMsg" class="empty-msg">Nog geen schema's geladen.<br>Laad een uitzendschema (.xls) om te beginnen.</p>
+    </section>
+    <section>
+      <h2>Type</h2>
+      <ul id="typeFilters" class="type-filters"></ul>
+    </section>
+    <section class="danger-zone">
+      <button id="clearAll" class="danger">Alles wissen</button>
+    </section>
+  </aside>
+
+  <main class="calendar" id="calendar"></main>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<div id="detailModal" class="modal-backdrop" hidden>
+  <div class="modal detail-modal">
+    <div class="detail-head">
+      <span id="detType" class="detail-type"></span>
+      <button id="detClose" class="modal-close" title="Sluiten">✕</button>
+    </div>
+    <h3 id="detName"></h3>
+    <dl class="detail-grid" id="detGrid"></dl>
+  </div>
+</div>
+
+<div id="statsModal" class="modal-backdrop" hidden>
+  <div class="modal stats-modal">
+    <div class="detail-head">
+      <span class="detail-type">📊 Inzet-overzicht</span>
+      <button id="statsClose" class="modal-close" title="Sluiten">✕</button>
+    </div>
+    <h3 id="statsName"></h3>
+    <p id="statsSummary" class="modal-sub"></p>
+    <div id="statsTypes" class="stats-types"></div>
+    <div class="stats-table-wrap">
+      <table class="stats-table">
+        <thead>
+          <tr><th>Item</th><th>Type</th><th>Lengte</th><th class="num">Aantal</th></tr>
+        </thead>
+        <tbody id="statsRows"></tbody>
+      </table>
+    </div>
+    <div class="stats-actions">
+      <button id="stEdit" class="ghost small" title="Naam, station of kleur aanpassen">✎ Wijzigen</button>
+      <button id="stReplace" class="ghost small" title="Vervang dit schema door een nieuw bestand">🔄 Vervangen…</button>
+      <button id="stIcal" class="ghost small" title="Download als iCal (.ics)">⤓ iCal</button>
+      <button id="stSub" class="ghost small" title="Abonnement-URL (Google Drive)">🔗 Abonnement</button>
+      <button id="stRemove" class="ghost small st-danger" title="Schema verwijderen">✕ Verwijderen</button>
+    </div>
+    <input type="file" id="replaceInput" accept=".xls,.xlsx" hidden>
+  </div>
+</div>
+
+<div id="editModal" class="modal-backdrop" hidden>
+  <div class="modal">
+    <h3>Schema wijzigen</h3>
+    <div class="form-row">
+      <label>Naam
+        <input type="text" id="editName" maxlength="80">
+      </label>
+    </div>
+    <div class="form-row">
+      <span class="form-label">Station</span>
+      <div id="editStations" class="station-pills edit-pills"></div>
+    </div>
+    <div class="form-row">
+      <span class="form-label">Kleur</span>
+      <div id="editColors" class="color-palette"></div>
+    </div>
+    <div class="modal-actions">
+      <button id="editCancel" class="ghost">Annuleren</button>
+      <button id="editSave" class="primary">Opslaan</button>
+    </div>
+  </div>
+</div>
+
+<div id="exportModal" class="modal-backdrop" hidden>
+  <div class="modal">
+    <h3>iCal exporteren</h3>
+    <p id="exportSchedName" class="modal-sub"></p>
+    <div class="form-row two">
+      <label>Vanaf
+        <input type="date" id="expFrom">
+      </label>
+      <label>Tot en met
+        <input type="date" id="expTo">
+      </label>
+    </div>
+    <div class="form-row">
+      <label>Duur per afspraak
+        <select id="expDur">
+          <option value="5">5 minuten</option>
+          <option value="10">10 minuten</option>
+          <option value="15" selected>15 minuten</option>
+          <option value="30">30 minuten</option>
+          <option value="60">1 uur</option>
+          <option value="real">Werkelijke spotlengte</option>
+        </select>
+      </label>
+    </div>
+    <div class="form-row">
+      <span class="form-label">Types</span>
+      <div id="expTypes" class="exp-types"></div>
+    </div>
+    <p id="expCount" class="modal-count"></p>
+    <div class="modal-actions">
+      <button id="expCancel" class="ghost">Annuleren</button>
+      <button id="expConfirm" class="primary">Downloaden</button>
+    </div>
+  </div>
+</div>
+
+<div id="subModal" class="modal-backdrop" hidden>
+  <div class="modal">
+    <h3>🔗 Abonnement-URL maken</h3>
+    <p class="modal-sub">Agenda-abonnement via Google Drive in 3 stappen:</p>
+    <ol class="sub-steps">
+      <li>Download de .ics via <b>⤓ iCal</b> en upload deze naar Google Drive</li>
+      <li>Rechtsklik op het bestand → Delen → “Iedereen met de link” (Lezer)</li>
+      <li>Plak de deellink hieronder</li>
+    </ol>
+    <div class="form-row">
+      <label>Google Drive-deellink
+        <input type="text" id="subLink" placeholder="https://drive.google.com/file/d/…">
+      </label>
+    </div>
+    <div class="form-row" id="subResultRow" hidden>
+      <label>Abonnement-URL — plak in Google Agenda → Agenda toevoegen → Via URL
+        <input type="text" id="subResult" readonly>
+      </label>
+    </div>
+    <div class="modal-actions">
+      <button id="subCancel" class="ghost">Sluiten</button>
+      <button id="subMake" class="primary">Maak URL &amp; kopieer</button>
+    </div>
+  </div>
+</div>
+
+<div id="printModal" class="modal-backdrop" hidden>
+  <div class="modal">
+    <h3>⎙ Print / PDF — weekoverzicht</h3>
+    <p class="modal-sub">Kies de weken die je wilt meenemen. Kies in het printvenster “Opslaan als PDF” voor een PDF-bestand.</p>
+    <div class="pw-tools">
+      <button id="pwAll" class="ghost small">Alles selecteren</button>
+      <button id="pwNone" class="ghost small">Niets selecteren</button>
+    </div>
+    <div id="printWeeks" class="print-weeks"></div>
+    <p id="printCount" class="modal-count"></p>
+    <div class="modal-actions">
+      <button id="printCancel" class="ghost">Annuleren</button>
+      <button id="printConfirm" class="primary">⎙ Print / PDF</button>
+    </div>
+  </div>
+</div>
+
+<div id="printArea"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -82,7 +82,11 @@
       <span class="detail-type">📊 Inzet-overzicht</span>
       <button id="statsClose" class="modal-close" title="Sluiten">✕</button>
     </div>
-    <h3 id="statsName"></h3>
+    <input type="text" id="statsName" class="stats-name" maxlength="80" title="Klik om de naam aan te passen" placeholder="Naam van het schema">
+    <div class="stats-station-row">
+      <span class="stats-station-label">Station</span>
+      <div id="statsStations" class="station-pills"></div>
+    </div>
     <p id="statsSummary" class="modal-sub"></p>
     <div id="statsTypes" class="stats-types"></div>
     <div class="stats-table-wrap">
@@ -94,7 +98,7 @@
       </table>
     </div>
     <div class="stats-actions">
-      <button id="stEdit" class="ghost small" title="Naam, station of kleur aanpassen">✎ Wijzigen</button>
+      <button id="stEdit" class="ghost small" title="Kleur aanpassen">🎨 Kleur</button>
       <button id="stReplace" class="ghost small" title="Vervang dit schema door een nieuw bestand">🔄 Vervangen…</button>
       <button id="stIcal" class="ghost small" title="Download als iCal (.ics)">⤓ iCal</button>
       <button id="stSub" class="ghost small" title="Abonnement-URL (Google Drive)">🔗 Abonnement</button>

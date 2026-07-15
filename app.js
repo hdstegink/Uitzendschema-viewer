@@ -114,6 +114,22 @@ const TYPE_COLORS = {
   "Spot": "#1d4ed8", "Promo": "#be185d", "Cromo": "#a21caf",
   "Audioboard": "#6d28d9", "Audio tag": "#b45309", "Tag-on": "#047857",
 };
+const DAYPARTS = [
+  { label: "Nacht", from: 0, to: 6, ico: "🌙", color: "#64748b" },
+  { label: "Ochtend", from: 6, to: 10, ico: "🌅", color: "#d97706" },
+  { label: "Middag", from: 10, to: 14, ico: "☀️", color: "#ca8a04" },
+  { label: "Namiddag", from: 14, to: 18, ico: "🌇", color: "#ea580c" },
+  { label: "Avond", from: 18, to: 24, ico: "🌃", color: "#7c3aed" },
+];
+function daypartCounts(items) {
+  return DAYPARTS.map(p => ({
+    ...p,
+    n: items.filter(it => {
+      const h = Math.floor(timeToMin(it.time) / 60);
+      return h >= p.from && h < p.to;
+    }).length,
+  }));
+}
 
 /* ================= XLS parsing ================= */
 function parseWorkbook(wb, fileName) {
@@ -568,32 +584,43 @@ function renderMonthView(cal) {
   const start = mondayOf(new Date(y, m, 1));
   const todayIso = isoDate(new Date());
 
+  // First pass: collect cell data + max daypart count for bar scaling
+  const cells = [];
+  let monthMax = 1;
+  for (let i = 0; i < 42; i++) {
+    const day = addDays(start, i);
+    if (i % 7 === 0 && i >= 28 && day.getMonth() !== m) break; // skip trailing empty weeks
+    const iso = isoDate(day);
+    const items = byDate[iso] || [];
+    const parts = daypartCounts(items).filter(p => p.n > 0);
+    for (const p of parts) if (p.n > monthMax) monthMax = p.n;
+    cells.push({ day, iso, items, parts });
+  }
+
   const wrap = document.createElement("div");
   wrap.className = "month-grid";
   wrap.innerHTML = `<div class="mg-head">${DAY_NAMES.map(n => `<div>${n.slice(0, 2)}</div>`).join("")}</div>`;
 
   const body = document.createElement("div");
   body.className = "mg-body";
-  for (let i = 0; i < 42; i++) {
-    const day = addDays(start, i);
-    if (i % 7 === 0 && i >= 28 && day.getMonth() !== m) break; // skip trailing empty weeks
-    const iso = isoDate(day);
-    const items = byDate[iso] || [];
+  for (const c of cells) {
     const cell = document.createElement("div");
     cell.className = "mg-cell"
-      + (day.getMonth() !== m ? " other" : "")
-      + (iso === todayIso ? " today" : "")
-      + (items.length ? " has-items" : "");
+      + (c.day.getMonth() !== m ? " other" : "")
+      + (c.iso === todayIso ? " today" : "")
+      + (c.items.length ? " has-items" : "");
 
-    const typeCounts = new Map();
-    for (const it of items) typeCounts.set(it.type, (typeCounts.get(it.type) || 0) + 1);
     cell.innerHTML = `
-      <div class="mg-top"><span class="mg-num">${day.getDate()}</span>${items.length ? `<span class="mg-count">${items.length}</span>` : ""}</div>
-      <div class="mg-dots">${[...typeCounts.entries()].map(([t, n]) =>
-        `<span class="mg-dot" style="background:${TYPE_COLORS[t] || "#7c8494"}" title="${escapeHtml(t)}: ${n}×"></span>`).join("")}</div>`;
-    if (items.length) {
-      cell.title = `${items.length} uitzendingen — klik voor dagweergave`;
-      cell.addEventListener("click", () => { anchorDate = day; renderWeekSelect(); setView("day"); });
+      <div class="mg-top"><span class="mg-num">${c.day.getDate()}</span>${c.items.length ? `<span class="mg-count">${c.items.length}</span>` : ""}</div>
+      ${c.parts.length ? `<div class="mg-parts">${c.parts.map(p => `
+        <div class="mg-part" title="${p.label} (${String(p.from).padStart(2, "0")}–${String(p.to).padStart(2, "0")}u): ${p.n} uitzendingen">
+          <span class="mg-part-ico">${p.ico}</span>
+          <div class="mg-part-track"><div class="mg-part-bar" style="width:${Math.max(p.n / monthMax * 100, 10).toFixed(0)}%;background:${p.color}"></div></div>
+          <span class="mg-part-n">${p.n}</span>
+        </div>`).join("")}</div>` : ""}`;
+    if (c.items.length) {
+      cell.title = `${c.items.length} uitzendingen — klik voor dagweergave`;
+      cell.addEventListener("click", () => { anchorDate = c.day; renderWeekSelect(); setView("day"); });
     }
     body.appendChild(cell);
   }
@@ -763,17 +790,8 @@ function buildWeekChart(items) {
 }
 
 function buildDayparts(items) {
-  const parts = [
-    ["🌙 Nacht", 0, 6], ["🌅 Ochtend", 6, 10], ["☀️ Middag", 10, 14],
-    ["🌇 Namiddag", 14, 18], ["🌃 Avond", 18, 24],
-  ];
-  const entries = parts.map(([label, from, to]) => {
-    const n = items.filter(it => {
-      const h = Math.floor(timeToMin(it.time) / 60);
-      return h >= from && h < to;
-    }).length;
-    return [`${label} <small>${String(from).padStart(2, "0")}–${String(to).padStart(2, "0")}u</small>`, n, "#6366f1"];
-  }).filter(e => e[1] > 0);
+  const entries = daypartCounts(items).filter(p => p.n > 0).map(p =>
+    [`${p.ico} ${p.label} <small>${String(p.from).padStart(2, "0")}–${String(p.to).padStart(2, "0")}u</small>`, p.n, p.color]);
   return buildDistribution(entries);
 }
 
@@ -908,9 +926,16 @@ function closeEditModal() {
 /* ================= Stats modal ================= */
 let statsTarget = null;
 
+function renderStatsStations() {
+  if (!statsTarget) return;
+  document.getElementById("statsStations").innerHTML = Object.entries(STATIONS).map(([st, c]) =>
+    `<button class="pill ${statsTarget.station === st ? "active" : ""}" data-stst="${escapeHtml(st)}" style="--c:${c}">${escapeHtml(st)}</button>`).join("");
+}
+
 function openStatsModal(s) {
   statsTarget = s;
-  document.getElementById("statsName").textContent = s.name;
+  document.getElementById("statsName").value = s.name;
+  renderStatsStations();
 
   const dates = s.items.map(it => it.date).sort();
   const fmt = iso => { const d = parseISO(iso); return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`; };
@@ -1339,6 +1364,32 @@ document.getElementById("stEdit").addEventListener("click", () => {
   const s = statsTarget;
   closeStatsModal();
   openEditModal(s);
+});
+// Inline naam bewerken in stats modal
+document.getElementById("statsName").addEventListener("input", (e) => {
+  if (!statsTarget) return;
+  const name = e.target.value.trim();
+  if (!name) return;
+  statsTarget.name = name;
+  saveSchedules();
+  renderSidebar();
+});
+document.getElementById("statsName").addEventListener("change", () => renderView());
+document.getElementById("statsName").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") e.target.blur();
+});
+// Station direct aanklikken in stats modal
+document.getElementById("statsStations").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-stst]");
+  if (!btn || !statsTarget) return;
+  const st = btn.dataset.stst;
+  statsTarget.station = statsTarget.station === st ? "" : st;
+  if (STATIONS[statsTarget.station]) statsTarget.color = STATIONS[statsTarget.station];
+  saveSchedules();
+  renderStatsStations();
+  document.querySelector("#statsModal .stats-modal").style.borderTop = `4px solid ${statsTarget.color}`;
+  renderSidebar();
+  renderView();
 });
 document.getElementById("stIcal").addEventListener("click", () => {
   const s = statsTarget;
